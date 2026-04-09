@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PBIX Analyzer</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --base: #22c55e;
+    --derived: #3b82f6;
+    --top: #ef4444;
+    --standalone: #94a3b8;
+    --accent: #6366f1;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 600; }
+  header .sub { font-size: 0.78rem; color: var(--muted); }
+
+  #btn-upload {
+    margin-left: auto;
+    padding: 6px 16px;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  #btn-upload:hover { opacity: 0.85; }
+
+  #btn-export {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  #btn-export:hover { background: var(--border); }
+  #btn-export:disabled { opacity: 0.4; cursor: default; }
+
+  #file-input { display: none; }
+
+  /* ── Search bar ── */
+  #search-bar {
+    padding: 8px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: none;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #search-bar.visible { display: flex; }
+  #search-input {
+    flex: 1;
+    max-width: 400px;
+    padding: 5px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  #search-input:focus { outline: 2px solid var(--accent); }
+  #search-info { font-size: 0.78rem; color: var(--muted); }
+
+  /* ── Main area ── */
+  main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ── Drop zone / empty state ── */
+  #drop-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border: 2px dashed var(--border);
+    margin: 32px;
+    border-radius: 16px;
+    color: var(--muted);
+    transition: border-color 0.2s;
+    cursor: pointer;
+  }
+  #drop-zone.drag-over { border-color: var(--accent); color: var(--accent); }
+  #drop-zone svg { width: 48px; height: 48px; opacity: 0.5; }
+  #drop-zone p { font-size: 0.95rem; }
+  #drop-zone small { font-size: 0.78rem; }
+
+  /* ── Graph container ── */
+  #graph-wrap {
+    flex: 1;
+    position: relative;
+    display: none;
+  }
+  #graph-wrap.visible { display: block; }
+
+  #graph { width: 100%; height: 100%; }
+
+  /* ── Legend ── */
+  #legend {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(15,23,42,0.88);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    backdrop-filter: blur(4px);
+  }
+  #legend .leg-item { display: flex; align-items: center; gap: 7px; }
+  #legend .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── Stats bar ── */
+  #stats-bar {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    gap: 8px;
+  }
+  .stat-chip {
+    background: rgba(15,23,42,0.88);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    backdrop-filter: blur(4px);
+  }
+  .stat-chip strong { color: var(--text); }
+
+  /* ── Side panel ── */
+  #side-panel {
+    width: 340px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  #side-panel.visible { display: flex; }
+
+  .panel-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .panel-header h2 { font-size: 0.95rem; font-weight: 600; word-break: break-word; }
+  .panel-header .table-name { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  #btn-close-panel {
+    background: none; border: none; color: var(--muted);
+    font-size: 1.2rem; cursor: pointer; flex-shrink: 0; line-height: 1;
+  }
+  #btn-close-panel:hover { color: var(--text); }
+
+  .panel-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .badge-base       { background: #14532d; color: var(--base); }
+  .badge-derived    { background: #1e3a5f; color: var(--derived); }
+  .badge-top_level  { background: #450a0a; color: var(--top); }
+  .badge-standalone { background: #1e293b; color: var(--standalone); border: 1px solid var(--border); }
+
+  .panel-section label {
+    display: block; font-size: 0.72rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px;
+  }
+
+  .dep-list { display: flex; flex-wrap: wrap; gap: 5px; }
+  .dep-pill {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .dep-pill:hover { border-color: var(--accent); }
+
+  .dax-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #93c5fd;
+    overflow-x: auto;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  /* ── Loader ── */
+  #loader {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,0.8);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    backdrop-filter: blur(2px);
+  }
+  #loader.visible { display: flex; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loader p { font-size: 0.9rem; color: var(--muted); }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #1e293b;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 0.85rem;
+    transition: transform 0.3s;
+    z-index: 200;
+    white-space: nowrap;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.error { border-color: var(--top); color: var(--top); }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="spinner"></div>
+  <p>Processando arquivo...</p>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Header -->
+<header>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+    <rect x="3" y="3" width="18" height="18" rx="3"/>
+    <path d="M9 9h6M9 12h6M9 15h4"/>
+  </svg>
+  <div>
+    <h1>PBIX Analyzer</h1>
+    <div class="sub">Grafo de dependências DAX</div>
+  </div>
+  <button id="btn-export" disabled>Exportar Markdown</button>
+  <button id="btn-upload">Abrir .pbix</button>
+  <input type="file" id="file-input" accept=".pbix" />
+</header>
+
+<!-- Search bar -->
+<div id="search-bar">
+  <input id="search-input" type="text" placeholder="Buscar medida por nome ou tabela..." />
+  <span id="search-info"></span>
+</div>
+
+<!-- Main -->
+<main>
+  <!-- Drop zone (empty state) -->
+  <div id="drop-zone">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 16V8m0 0-3 3m3-3 3 3"/>
+      <path d="M20 16.5A4.5 4.5 0 0 0 15.5 12H14a6 6 0 1 0-11.8 1.5"/>
+    </svg>
+    <p>Arraste um arquivo <strong>.pbix</strong> aqui</p>
+    <small>ou clique em "Abrir .pbix" no canto superior direito</small>
+  </div>
+
+  <!-- Graph -->
+  <div id="graph-wrap">
+    <div id="graph"></div>
+
+    <!-- Legend -->
+    <div id="legend">
+      <div class="leg-item"><span class="dot" style="background:#22c55e"></span>Base</div>
+      <div class="leg-item"><span class="dot" style="background:#3b82f6"></span>Derivada</div>
+      <div class="leg-item"><span class="dot" style="background:#ef4444"></span>Top-level</div>
+      <div class="leg-item"><span class="dot" style="background:#94a3b8"></span>Standalone</div>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats-bar"></div>
+  </div>
+
+  <!-- Side panel -->
+  <div id="side-panel">
+    <div class="panel-header">
+      <div>
+        <h2 id="panel-name"></h2>
+        <div class="table-name" id="panel-table"></div>
+      </div>
+      <button id="btn-close-panel" title="Fechar">×</button>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="panel-badge" class="badge"></span>
+        <span id="panel-depth" style="font-size:0.78rem;color:var(--muted)"></span>
+      </div>
+      <div class="panel-section" id="sec-deps">
+        <label>Depende de</label>
+        <div class="dep-list" id="panel-deps"></div>
+      </div>
+      <div class="panel-section" id="sec-used">
+        <label>Usada por</label>
+        <div class="dep-list" id="panel-used"></div>
+      </div>
+      <div class="panel-section">
+        <label>Expressão DAX</label>
+        <div class="dax-block" id="panel-dax"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let network = null;
+let allMeasures = [];
+let currentPayload = null;
+let highlightActive = false;
+
+const COLOR = {
+  base:       { background: '#22c55e', border: '#16a34a' },
+  derived:    { background: '#3b82f6', border: '#2563eb' },
+  top_level:  { background: '#ef4444', border: '#dc2626' },
+  standalone: { background: '#94a3b8', border: '#64748b' },
+};
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const loader      = document.getElementById('loader');
+const toast       = document.getElementById('toast');
+const dropZone    = document.getElementById('drop-zone');
+const graphWrap   = document.getElementById('graph-wrap');
+const sidePanel   = document.getElementById('side-panel');
+const searchBar   = document.getElementById('search-bar');
+const searchInput = document.getElementById('search-input');
+const searchInfo  = document.getElementById('search-info');
+const statsBar    = document.getElementById('stats-bar');
+const fileInput   = document.getElementById('file-input');
+const btnUpload   = document.getElementById('btn-upload');
+const btnExport   = document.getElementById('btn-export');
+const btnClose    = document.getElementById('btn-close-panel');
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg, isError = false) {
+  toast.textContent = msg;
+  toast.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.className = '', 3000);
+}
+
+// ── File handling ──────────────────────────────────────────────────────────
+btnUpload.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.pbix')) handleFile(f);
+  else showToast('Selecione um arquivo .pbix', true);
+});
+
+// Allow drag-drop anywhere in the window too
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.pbix')) handleFile(f);
+});
+
+async function handleFile(file) {
+  loader.classList.add('visible');
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Erro desconhecido');
+    renderAll(data);
+    showToast(`${data.total_measures} medidas carregadas`);
+  } catch (err) {
+    showToast('Erro: ' + err.message, true);
+  } finally {
+    loader.classList.remove('visible');
+    fileInput.value = '';
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderAll(payload) {
+  currentPayload = payload;
+  allMeasures = payload.measures;
+
+  dropZone.style.display = 'none';
+  graphWrap.classList.add('visible');
+  searchBar.classList.add('visible');
+  btnExport.disabled = false;
+
+  renderStats(payload);
+  renderGraph(payload.measures);
+  closePanel();
+}
+
+function renderStats(payload) {
+  const counts = {};
+  payload.measures.forEach(m => counts[m.classification] = (counts[m.classification] || 0) + 1);
+  const labels = { base: 'Base', derived: 'Derivadas', top_level: 'Top-level', standalone: 'Standalone' };
+  statsBar.innerHTML = `
+    <div class="stat-chip"><strong>${payload.total_measures}</strong> medidas</div>
+    ${Object.entries(counts).map(([k,v]) =>
+      `<div class="stat-chip"><strong>${v}</strong> ${labels[k] || k}</div>`
+    ).join('')}
+  `;
+}
+
+function renderGraph(measures) {
+  const nodes = new vis.DataSet(measures.map(m => ({
+    id: m.name,
+    label: m.name,
+    title: `${m.table} · ${m.classification} · profundidade ${m.dependency_depth}`,
+    color: COLOR[m.classification] || COLOR.standalone,
+    font: { color: '#fff', size: 12 },
+    size: 12 + m.dependency_depth * 3,
+    borderWidth: 2,
+    shadow: { enabled: true, size: 6 },
+    _data: m,
+  })));
+
+  const edges = new vis.DataSet();
+  measures.forEach(m => {
+    m.dependencies.forEach(dep => {
+      if (measures.find(x => x.name === dep)) {
+        edges.add({ from: dep, to: m.name, arrows: 'to',
+          color: { color: '#334155', highlight: '#6366f1' },
+          width: 1.5, smooth: { type: 'cubicBezier', roundness: 0.2 } });
+      }
+    });
+  });
+
+  if (network) { network.destroy(); network = null; }
+
+  const container = document.getElementById('graph');
+  network = new vis.Network(container, { nodes, edges }, {
+    physics: {
+      enabled: true,
+      barnesHut: { gravitationalConstant: -8000, springLength: 120, damping: 0.15 },
+      stabilization: { iterations: 200 },
+    },
+    interaction: { hover: true, tooltipDelay: 200, navigationButtons: true, keyboard: true },
+    nodes: { shape: 'dot' },
+    edges: { smooth: true },
+  });
+
+  network.on('stabilizationIterationsDone', () => network.setOptions({ physics: false }));
+
+  network.on('click', params => {
+    if (params.nodes.length) {
+      const node = nodes.get(params.nodes[0]);
+      if (node) openPanel(node._data);
+    } else {
+      closePanel();
+    }
+  });
+
+  // Highlight neighbours on hover
+  network.on('hoverNode', params => highlightNeighbours(params.node, nodes, edges, true));
+  network.on('blurNode', () => resetHighlight(nodes, edges));
+}
+
+// ── Highlight ──────────────────────────────────────────────────────────────
+function highlightNeighbours(nodeId, nodes, edges, active) {
+  highlightActive = active;
+  const connected = new Set(network.getConnectedNodes(nodeId));
+  connected.add(nodeId);
+
+  nodes.update(nodes.get().map(n => ({
+    id: n.id,
+    opacity: connected.has(n.id) ? 1 : 0.15,
+  })));
+  edges.update(edges.get().map(e => ({
+    id: e.id,
+    color: { color: (connected.has(e.from) && connected.has(e.to)) ? '#6366f1' : '#1e293b' },
+    width: (connected.has(e.from) && connected.has(e.to)) ? 2.5 : 1,
+  })));
+}
+
+function resetHighlight(nodes, edges) {
+  highlightActive = false;
+  nodes.update(nodes.get().map(n => ({ id: n.id, opacity: 1 })));
+  edges.update(edges.get().map(e => ({
+    id: e.id,
+    color: { color: '#334155' },
+    width: 1.5,
+  })));
+}
+
+// ── Side panel ─────────────────────────────────────────────────────────────
+function openPanel(m) {
+  document.getElementById('panel-name').textContent = m.name;
+  document.getElementById('panel-table').textContent = m.table;
+  document.getElementById('panel-depth').textContent =
+    `Profundidade ${m.dependency_depth}`;
+
+  const badge = document.getElementById('panel-badge');
+  const labels = { base: 'Base', derived: 'Derivada', top_level: 'Top-level', standalone: 'Standalone' };
+  badge.textContent = labels[m.classification] || m.classification;
+  badge.className = `badge badge-${m.classification}`;
+
+  const depsEl  = document.getElementById('panel-deps');
+  const usedEl  = document.getElementById('panel-used');
+  document.getElementById('sec-deps').style.display = m.dependencies.length ? '' : 'none';
+  document.getElementById('sec-used').style.display = m.used_by.length ? '' : 'none';
+
+  depsEl.innerHTML = m.dependencies.map(d =>
+    `<span class="dep-pill" data-name="${d}">${d}</span>`).join('');
+  usedEl.innerHTML = m.used_by.map(d =>
+    `<span class="dep-pill" data-name="${d}">${d}</span>`).join('');
+
+  [depsEl, usedEl].forEach(el => {
+    el.querySelectorAll('.dep-pill').forEach(pill => {
+      pill.addEventListener('click', () => focusMeasure(pill.dataset.name));
+    });
+  });
+
+  document.getElementById('panel-dax').textContent = m.expression;
+
+  sidePanel.classList.add('visible');
+
+  // Focus the node in the graph
+  if (network) {
+    network.selectNodes([m.name]);
+    network.focus(m.name, { animation: { duration: 500 }, scale: 1.2 });
+  }
+}
+
+function closePanel() {
+  sidePanel.classList.remove('visible');
+  if (network) network.unselectAll();
+}
+
+function focusMeasure(name) {
+  const m = allMeasures.find(x => x.name === name);
+  if (m) openPanel(m);
+}
+
+btnClose.addEventListener('click', closePanel);
+
+// ── Search / filter ────────────────────────────────────────────────────────
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim().toLowerCase();
+  if (!q) {
+    searchInfo.textContent = '';
+    resetHighlight(
+      network ? network.body.data.nodes : { get: () => [], update: () => {} },
+      network ? network.body.data.edges : { get: () => [], update: () => {} },
+    );
+    return;
+  }
+
+  const matched = allMeasures.filter(m =>
+    m.name.toLowerCase().includes(q) || m.table.toLowerCase().includes(q)
+  );
+  searchInfo.textContent = `${matched.length} resultado(s)`;
+
+  if (!network) return;
+  const matchedIds = new Set(matched.map(m => m.name));
+  const nodes = network.body.data.nodes;
+  const edges = network.body.data.edges;
+  nodes.update(nodes.get().map(n => ({ id: n.id, opacity: matchedIds.has(n.id) ? 1 : 0.1 })));
+  edges.update(edges.get().map(e => ({
+    id: e.id,
+    color: { color: (matchedIds.has(e.from) && matchedIds.has(e.to)) ? '#6366f1' : '#1e2940' },
+  })));
+
+  if (matched.length === 1 && network) {
+    network.focus(matched[0].name, { animation: { duration: 400 }, scale: 1.4 });
+  }
+});
+
+// ── Export Markdown ────────────────────────────────────────────────────────
+btnExport.addEventListener('click', async () => {
+  if (!currentPayload) return;
+  // Re-use the file from payload is not possible (stateless), so we call a
+  // separate endpoint — but since we already have the payload client-side,
+  // we'll just trigger a client-side markdown generation via the server.
+  // Simple approach: open a POST to /export-markdown with the same file.
+  // Since we don't keep the file on the server, we ask the user to pick again
+  // and immediately download the result.
+  const f = await pickFile();
+  if (!f) return;
+  loader.classList.add('visible');
+  try {
+    const fd = new FormData();
+    fd.append('file', f);
+    const res = await fetch('/export-markdown', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Erro');
+    downloadText(data.markdown, currentPayload.file.replace('.pbix', '_report.md'));
+    showToast('Markdown exportado');
+  } catch (err) {
+    showToast('Erro: ' + err.message, true);
+  } finally {
+    loader.classList.remove('visible');
+  }
+});
+
+function pickFile() {
+  return new Promise(resolve => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.pbix';
+    inp.onchange = () => resolve(inp.files[0] || null);
+    inp.oncancel = () => resolve(null);
+    inp.click();
+  });
+}
+
+function downloadText(text, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>
