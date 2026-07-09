@@ -130,16 +130,57 @@ def compute_depth(
     name: str,
     graph: dict[str, list[str]],
     cache: dict[str, int],
+    _visiting: set[str] | None = None,
 ) -> int:
+    """
+    Profundidade máxima da cadeia de dependências de uma medida.
+
+    Resistente a ciclos: modelos reais de Power BI podem conter dependências
+    circulares entre medidas (ex.: GM ↔ GM Total). Ao reencontrar uma medida
+    que já está na cadeia atual, a aresta que fecharia o ciclo é ignorada
+    (contribui com profundidade 0), evitando o RecursionError.
+    """
+    depth, _tainted = _compute_depth(name, graph, cache, _visiting or set())
+    return depth
+
+
+def _compute_depth(
+    name: str,
+    graph: dict[str, list[str]],
+    cache: dict[str, int],
+    visiting: set[str],
+) -> tuple[int, bool]:
+    """
+    Retorna (profundidade, tainted). `tainted` indica que o cálculo cortou pelo
+    menos uma aresta de ciclo — nesse caso o valor depende do ponto de entrada e
+    não pode ser cacheado. Valores não contaminados são memoizados, preservando
+    complexidade linear no tamanho do grafo.
+    """
     if name in cache:
-        return cache[name]
+        return cache[name], False
+
+    # Aresta que fecharia um ciclo — ignora para não recorrer infinitamente.
+    if name in visiting:
+        return 0, True
+
     deps = graph.get(name, [])
     if not deps:
         cache[name] = 0
-        return 0
-    depth = 1 + max(compute_depth(d, graph, cache) for d in deps)
-    cache[name] = depth
-    return depth
+        return 0, False
+
+    visiting.add(name)
+    best = 0
+    tainted = False
+    for d in deps:
+        d_depth, d_tainted = _compute_depth(d, graph, cache, visiting)
+        best = max(best, d_depth)
+        tainted = tainted or d_tainted
+    visiting.discard(name)
+
+    depth = 1 + best
+    if not tainted:
+        cache[name] = depth
+    return depth, tainted
 
 
 # ---------------------------------------------------------------------------
